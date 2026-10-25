@@ -136,7 +136,11 @@ button.red{background:var(--red)}button.ghost{background:#eef2fb;color:var(--pri
   <div class="card">
     <div class="head2">
       <h2>📋 Các buổi đã ghi</h2>
-      <button class="ghost sm" id="btnRefresh">🔄 Làm mới</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="ghost sm hide" id="btnDrive">📁 Thư mục Drive</button>
+        <button class="ghost sm hide" id="btnSheet">📊 Nhật ký</button>
+        <button class="ghost sm" id="btnRefresh">🔄 Làm mới</button>
+      </div>
     </div>
     <div class="msg" id="listMsg"></div>
     <div id="list"></div>
@@ -146,7 +150,8 @@ button.red{background:var(--red)}button.ghost{background:#eef2fb;color:var(--pri
 
 <script>
 /* ================= CẤU HÌNH ================= */
-/* v2.1 – thiếu micro vẫn ghi được âm thanh cuộc họp; nhớ nguồn âm thanh đã chọn
+/* v2.3 – nút mở thư mục Drive của từng buổi, thư mục gốc và Sheet nhật ký
+   v2.1 – thiếu micro vẫn ghi được âm thanh cuộc họp; nhớ nguồn âm thanh đã chọn
    v2.0 – đoạn 3 phút, xử lý ngay, tải file song song */
 const SEG_MS = 3 * 60 * 1000;          // mỗi đoạn ghi 3 phút (chép lời xong sớm hơn)
 const SONG_SONG_TAI = 3;               // số mảnh file tải lên cùng lúc
@@ -525,7 +530,11 @@ async function taiDanhSach() {
   clearTimeout(pollTimer);
   msg('listMsg', 'Đang tải…');
   try {
-    const ds = await goiApi('danhSach');
+    const kq = await goiApi('danhSach');
+    // v2.3 trả về { ds, thuMucGoc, sheetUrl }; bản cũ trả về mảng
+    const ds = Array.isArray(kq) ? kq : (kq.ds || []);
+    if (kq.thuMucGoc) { $('btnDrive').onclick = () => window.open(kq.thuMucGoc, '_blank', 'noopener'); $('btnDrive').classList.remove('hide'); }
+    if (kq.sheetUrl) { $('btnSheet').onclick = () => window.open(kq.sheetUrl, '_blank', 'noopener'); $('btnSheet').classList.remove('hide'); }
     msg('listMsg', '');
     veDanhSach(ds);
     baoKetQuaVuaGhi(ds);
@@ -579,6 +588,13 @@ function veDanhSach(ds) {
       const b = document.createElement('button');
       b.className = 'sm'; b.textContent = '📄 Mở bản tóm tắt';
       b.onclick = () => window.open(x.docUrl, '_blank', 'noopener');
+      acts.appendChild(b);
+    }
+    if (x.folderUrl) {
+      const b = document.createElement('button');
+      b.className = 'sm ghost'; b.textContent = '📁 Thư mục buổi';
+      b.title = 'File ghi âm, bản chép lời từng đoạn, ghi chú từng phần';
+      b.onclick = () => window.open(x.folderUrl, '_blank', 'noopener');
       acts.appendChild(b);
     }
     const dangGhiPhienNay = R.on && R.sessionId === x.id;
