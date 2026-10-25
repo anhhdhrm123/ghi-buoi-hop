@@ -99,6 +99,7 @@ button.red{background:var(--red)}button.ghost{background:#eef2fb;color:var(--pri
       <div class="meter hide" id="meterBox"><i id="meter"></i></div>
     </div>
     <div class="msg" id="recMsg"></div>
+    <div class="rec hide" id="recDone"><button id="btnOpenDone">📄 Mở bản tóm tắt vừa ghi</button></div>
 
     <div class="note">
       💡 <b>Họp trên trình duyệt (Meet, Zoom web):</b> khi bấm Bắt đầu, chọn thẻ <i>Chrome Tab</i> có cuộc họp và bật <i>"Chia sẻ cả âm thanh của thẻ"</i>.<br>
@@ -145,7 +146,9 @@ button.red{background:var(--red)}button.ghost{background:#eef2fb;color:var(--pri
 
 <script>
 /* ================= CẤU HÌNH ================= */
-const SEG_MS = 5 * 60 * 1000;          // mỗi đoạn ghi 5 phút
+/* v2.0 – đoạn 3 phút, xử lý ngay, tải file song song */
+const SEG_MS = 3 * 60 * 1000;          // mỗi đoạn ghi 3 phút (chép lời xong sớm hơn)
+const SONG_SONG_TAI = 3;               // số mảnh file tải lên cùng lúc
 const MANH = 8 * 1024 * 1024;          // mảnh tải file 8MB (đúng bội số Gemini yêu cầu)
 const MAX_FILE = 300 * 1024 * 1024;
 const $ = id => document.getElementById(id);
@@ -177,6 +180,26 @@ function blobB64(blob) {
     fr.onerror = () => rej(fr.error);
     fr.readAsDataURL(blob);
   });
+}
+
+/* ================= XỬ LÝ NGAY ================= */
+// Gọi máy chủ xử lý ngay (chép lời / tóm tắt) thay vì chờ lịch 5 phút.
+// Nếu máy chủ đang bận xử lý, nó sẽ tự lấy việc mới ở vòng sau; ta thử gọi lại sau 30 giây.
+let dangKich = false;
+async function kichXuLy(lan) {
+  lan = lan || 0;
+  if (dangKich) return;
+  dangKich = true;
+  let thuLaiSau = false;
+  try {
+    const d = await goiApi('xuLyNgay');
+    if (d && d.chay === false && lan < 2) thuLaiSau = true;
+  } catch (e) {
+    if (lan < 2) thuLaiSau = true;
+  }
+  dangKich = false;
+  if (thuLaiSau) setTimeout(() => kichXuLy(lan + 1), 30000);
+  taiDanhSach();
 }
 
 /* ================= CÀI ĐẶT ================= */
@@ -267,7 +290,8 @@ async function batDauGhi() {
   }
 
   Object.assign(R, { on: true, stopping: false, streams, ctx, dest, analyser: an, mime: chonMime(),
-    t0: Date.now(), segIndex: 0, queued: 0, sent: 0, queue: [], note: '' });
+    t0: Date.now(), segIndex: 0, queued: 0, sent: 0, queue: [], note: '', choId: null });
+  $('recDone').classList.add('hide');
   batDauDoan();
   R.tick = setInterval(nhipGhi, 1000);
   veMeter();
@@ -333,6 +357,7 @@ async function guiHangDoi() {
       await goiApi('guiDoan', { sessionId: R.sessionId, stt: d.stt, batDau: Math.round(d.tu), ketThuc: Math.round(d.den), mime: d.blob.type, data });
       R.queue.shift(); R.sent++;
       capNhatTrangThaiGhi('');
+      if (!R.stopping) kichXuLy(); // chép lời ngay trong lúc vẫn đang ghi
     } catch (e) {
       d.lan++;
       capNhatTrangThaiGhi('⚠️ Gửi đoạn ' + d.stt + ' lỗi (' + e.message + '), đang tự thử lại…');
@@ -375,8 +400,13 @@ async function dungGhi(lyDo) {
   ['recDot', 'recClock', 'meterBox'].forEach(id => $(id).classList.add('hide'));
   $('recClock').textContent = '00:00'; $('meter').style.width = '0';
   $('nguonBox').style.opacity = 1; $('nguonBox').style.pointerEvents = 'auto';
-  if (xong) msg('recMsg', '✅ Đã ghi xong ' + fmt(thoiLuong) + '. Agent đang chép lời và tóm tắt. Kết quả sẽ hiện ở mục "Các buổi đã ghi" sau khoảng 5–15 phút.', 'ok');
-  else msg('recMsg', '⚠️ Dữ liệu đã gửi đủ nhưng chưa báo kết thúc được. Bấm "Kết thúc & tóm tắt" ở mục danh sách bên dưới.', 'err');
+  if (xong) {
+    R.choId = R.sessionId;
+    msg('recMsg', '✅ Đã ghi xong ' + fmt(thoiLuong) + '. Agent đang chép nốt và tóm tắt (thường 1–3 phút). Nút mở bản tóm tắt sẽ tự hiện ở đây.', 'ok');
+    kichXuLy();
+  } else {
+    msg('recMsg', '⚠️ Dữ liệu đã gửi đủ nhưng chưa báo kết thúc được. Bấm "Kết thúc & tóm tắt" ở mục danh sách bên dưới.', 'err');
+  }
   taiDanhSach();
 }
 
@@ -430,19 +460,27 @@ $('btnUpload').onclick = async () => {
       loai: $('upType').value, tenFile: f.name, mime, kichThuoc: f.size, thoiLuong
     });
     const n = Math.ceil(f.size / MANH);
-    for (let i = 0; i < n; i++) {
-      const data = await blobB64(f.slice(i * MANH, Math.min(f.size, (i + 1) * MANH)));
-      let ok = false;
-      for (let lan = 1; lan <= 4 && !ok; lan++) {
-        try { await goiApi('taiFileManh', { sessionId: d.sessionId, stt: i + 1, data }); ok = true; }
-        catch (e) { if (lan === 4) throw e; msg('upMsg', '⚠️ Mảnh ' + (i + 1) + ' lỗi, thử lại lần ' + (lan + 1) + '…', 'err'); await ngu(4000 * lan); }
+    let tiep = 0, xongManh = 0;
+    // Tải nhiều mảnh cùng lúc (mỗi mảnh là 1 file riêng trên Drive nên không đè nhau)
+    const thoTai = async () => {
+      while (tiep < n) {
+        const i = tiep++;
+        const data = await blobB64(f.slice(i * MANH, Math.min(f.size, (i + 1) * MANH)));
+        let ok = false;
+        for (let lan = 1; lan <= 4 && !ok; lan++) {
+          try { await goiApi('taiFileManh', { sessionId: d.sessionId, stt: i + 1, data }); ok = true; }
+          catch (e) { if (lan === 4) throw e; await ngu(4000 * lan); }
+        }
+        xongManh++;
+        $('upBar').style.width = Math.round(xongManh / n * 100) + '%';
+        msg('upMsg', 'Đang tải lên ' + xongManh + '/' + n + ' phần…');
       }
-      $('upBar').style.width = Math.round((i + 1) / n * 100) + '%';
-      msg('upMsg', 'Đang tải lên ' + (i + 1) + '/' + n + ' phần…');
-    }
+    };
+    await Promise.all(Array.from({ length: Math.min(SONG_SONG_TAI, n) }, thoTai));
     await goiApi('taiFileXong', { sessionId: d.sessionId, soManh: n });
-    msg('upMsg', '✅ Đã tải lên xong. Agent đang xử lý, kết quả sẽ hiện ở mục "Các buổi đã ghi" sau khoảng 5–20 phút.', 'ok');
+    msg('upMsg', '✅ Đã tải lên xong. Agent đang xử lý, kết quả sẽ hiện ở mục "Các buổi đã ghi" (file 1 giờ thường mất 3–8 phút).', 'ok');
     $('upFile').value = ''; $('upTitle').value = '';
+    kichXuLy();
   } catch (e) {
     msg('upMsg', '❌ ' + e.message, 'err');
   } finally {
@@ -468,9 +506,30 @@ async function taiDanhSach() {
     const ds = await goiApi('danhSach');
     msg('listMsg', '');
     veDanhSach(ds);
-    if (ds.some(x => x.trangThai !== 'xong' && x.trangThai !== 'loi')) pollTimer = setTimeout(taiDanhSach, 30000);
+    baoKetQuaVuaGhi(ds);
+    if (ds.some(x => x.trangThai !== 'xong' && x.trangThai !== 'loi')) pollTimer = setTimeout(taiDanhSach, 10000);
   } catch (e) {
     msg('listMsg', '❌ ' + e.message, 'err');
+  }
+}
+
+// Khi buổi vừa ghi đã có tóm tắt → hiện nút mở ngay dưới khung ghi
+function baoKetQuaVuaGhi(ds) {
+  if (!R.choId) return;
+  const x = ds.find(i => i.id === R.choId);
+  if (!x) return;
+  if (x.trangThai === 'xong' && x.docUrl) {
+    msg('recMsg', '✅ Đã có bản tóm tắt' + (x.tomTatNgan ? ': ' + x.tomTatNgan : '.'), 'ok');
+    $('btnOpenDone').onclick = () => window.open(x.docUrl, '_blank', 'noopener');
+    $('recDone').classList.remove('hide');
+    R.choId = null;
+  } else if (x.trangThai === 'loi') {
+    msg('recMsg', '❌ Xử lý lỗi: ' + (x.loi || 'không rõ') + '\nBấm "Thử lại" ở mục danh sách bên dưới.', 'err');
+    R.choId = null;
+  } else if (!R.on) {
+    const buoc = x.trangThai === 'dang_tom_tat' ? '🧠 Đang tóm tắt…'
+      : '✍️ Đang chép lời ' + x.xongDoan + '/' + x.tongDoan + ' đoạn…';
+    msg('recMsg', buoc + ' (tự cập nhật 10 giây/lần)');
   }
 }
 
@@ -515,8 +574,11 @@ function veDanhSach(ds) {
 async function thuLai(x, btn) {
   if (x.trangThai === 'xong' && !confirm('Tạo bản tóm tắt mới cho buổi này? Bản cũ vẫn được giữ trong Drive.')) return;
   btn.disabled = true;
-  try { await goiApi('thuLai', { sessionId: x.id }); msg('listMsg', '✅ Đã đưa vào hàng chờ xử lý (khoảng 5–15 phút).', 'ok'); }
-  catch (e) { msg('listMsg', '❌ ' + e.message, 'err'); }
+  try {
+    await goiApi('thuLai', { sessionId: x.id });
+    msg('listMsg', '✅ Đã đưa vào xử lý, thường xong sau 1–3 phút.', 'ok');
+    kichXuLy();
+  } catch (e) { msg('listMsg', '❌ ' + e.message, 'err'); }
   taiDanhSach();
 }
 
