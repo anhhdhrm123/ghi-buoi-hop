@@ -146,7 +146,8 @@ button.red{background:var(--red)}button.ghost{background:#eef2fb;color:var(--pri
 
 <script>
 /* ================= CẤU HÌNH ================= */
-/* v2.0 – đoạn 3 phút, xử lý ngay, tải file song song */
+/* v2.1 – thiếu micro vẫn ghi được âm thanh cuộc họp; nhớ nguồn âm thanh đã chọn
+   v2.0 – đoạn 3 phút, xử lý ngay, tải file song song */
 const SEG_MS = 3 * 60 * 1000;          // mỗi đoạn ghi 3 phút (chép lời xong sớm hơn)
 const SONG_SONG_TAI = 3;               // số mảnh file tải lên cùng lúc
 const MANH = 8 * 1024 * 1024;          // mảnh tải file 8MB (đúng bội số Gemini yêu cầu)
@@ -224,6 +225,17 @@ const R = { on: false, stopping: false, sessionId: null, streams: [], ctx: null,
 
 const coDisplay = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
 if (!coDisplay) { $('optTabMic').classList.add('hide'); $('optTab').classList.add('hide'); $('radMic').checked = true; }
+else {
+  // Nhớ nguồn âm thanh đã chọn lần trước trên máy này
+  try {
+    const daChon = localStorage.getItem('agentGhi.nguon');
+    const r = daChon && document.querySelector('input[name=nguon][value="' + daChon + '"]');
+    if (r) r.checked = true;
+  } catch (e) {}
+}
+document.querySelectorAll('input[name=nguon]').forEach(r => r.addEventListener('change', () => {
+  try { localStorage.setItem('agentGhi.nguon', r.value); } catch (e) {}
+}));
 
 function chonMime() {
   const ds = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
@@ -251,6 +263,7 @@ async function batDauGhi() {
   msg('recMsg', 'Đang xin quyền truy cập âm thanh…');
 
   const streams = [];
+  let canhBaoMic = '';
   try {
     if (che !== 'mic') {
       if (!coDisplay) throw new Error('Thiết bị này không thu được âm thanh thẻ/màn hình. Hãy chọn "Chỉ micro".');
@@ -260,7 +273,16 @@ async function batDauGhi() {
       ds.getVideoTracks().forEach(t => t.addEventListener('ended', () => { if (R.on) dungGhi('Bạn đã dừng chia sẻ nên hệ thống tự kết thúc ghi.'); }));
     }
     if (che !== 'tab') {
-      streams.push(await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }));
+      try {
+        streams.push(await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }));
+      } catch (eMic) {
+        // Chế độ "cuộc họp + giọng tôi" mà máy không có/không mở được micro → vẫn ghi âm thanh cuộc họp
+        if (che === 'tab_mic' && streams.length) {
+          canhBaoMic = '⚠️ Không dùng được micro (' + giaiThichLoi(eMic).replace('❌ ', '') + ') — đang ghi CHỈ âm thanh cuộc họp.';
+        } else {
+          throw eMic;
+        }
+      }
     }
   } catch (e) {
     streams.forEach(s => s.getTracks().forEach(t => t.stop()));
@@ -290,7 +312,7 @@ async function batDauGhi() {
   }
 
   Object.assign(R, { on: true, stopping: false, streams, ctx, dest, analyser: an, mime: chonMime(),
-    t0: Date.now(), segIndex: 0, queued: 0, sent: 0, queue: [], note: '', choId: null });
+    t0: Date.now(), segIndex: 0, queued: 0, sent: 0, queue: [], note: canhBaoMic, choId: null });
   $('recDone').classList.add('hide');
   batDauDoan();
   R.tick = setInterval(nhipGhi, 1000);
