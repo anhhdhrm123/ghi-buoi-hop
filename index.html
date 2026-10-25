@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Ghi Buổi Họp</title>
+<style>
+:root{--bg:#f4f6fb;--card:#fff;--ink:#1d2433;--mute:#6b7385;--pri:#2457d6;--pri2:#1b44aa;--red:#d93838;--ok:#1f9d55;--line:#e3e7f0;--warn:#b7791f}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);font-size:15px}
+.wrap{max-width:760px;margin:0 auto;padding:16px}
+header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:4px 0 16px}
+h1{font-size:20px;margin:0}.sub{color:var(--mute);font-size:13px;margin-top:2px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+.card h2{font-size:16px;margin:0 0 4px}
+label.f{display:block;font-size:13px;color:var(--mute);margin:12px 0 4px}
+input[type=text],input[type=password],input[type=url],select{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:15px;background:#fff;color:var(--ink)}
+input[type=file]{width:100%;font-size:14px}
+.row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1;min-width:180px}
+.opt{display:flex;gap:10px;align-items:flex-start;padding:9px 11px;border:1px solid var(--line);border-radius:10px;margin-top:6px;cursor:pointer}
+.opt small{display:block;color:var(--mute);margin-top:2px}
+.opt input{margin-top:3px}
+button{border:0;border-radius:10px;padding:11px 16px;font-size:15px;font-weight:600;cursor:pointer;background:var(--pri);color:#fff}
+button:hover{background:var(--pri2)}button:disabled{opacity:.5;cursor:not-allowed}
+button.red{background:var(--red)}button.ghost{background:#eef2fb;color:var(--pri)}button.sm{padding:7px 11px;font-size:13px}
+.rec{display:flex;align-items:center;gap:14px;margin-top:14px;flex-wrap:wrap}
+.clock{font-variant-numeric:tabular-nums;font-size:26px;font-weight:700}
+.dot{width:12px;height:12px;border-radius:50%;background:var(--red);animation:b 1s infinite}@keyframes b{50%{opacity:.2}}
+.meter{flex:1;min-width:120px;height:8px;background:#eef1f7;border-radius:6px;overflow:hidden}.meter>i{display:block;height:100%;width:0;background:var(--ok);transition:width .1s}
+.msg{margin-top:10px;font-size:13px;color:var(--mute);white-space:pre-line}.msg.err{color:var(--red)}.msg.ok{color:var(--ok)}
+.bar{height:8px;background:#eef1f7;border-radius:6px;overflow:hidden;margin-top:10px}.bar>i{display:block;height:100%;width:0;background:var(--pri);transition:width .3s}
+.item{border-top:1px solid var(--line);padding:12px 0}.item:first-child{border-top:0}
+.item .t{font-weight:600}.item .m{font-size:13px;color:var(--mute);margin-top:2px}.item .s{font-size:13px;margin-top:6px}
+.item .acts{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:12px;background:#eef2fb}
+.note{font-size:12.5px;color:var(--mute);background:#fafbfe;border:1px dashed var(--line);border-radius:10px;padding:10px 12px;margin-top:12px;line-height:1.55}
+.hide{display:none!important}
+.head2{display:flex;justify-content:space-between;align-items:center;gap:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <h1>🎙️ Agent Ghi Buổi Họp</h1>
+      <div class="sub">Ghi âm → chép lời tiếng Việt → tóm tắt tự động bằng Gemini</div>
+    </div>
+    <button class="ghost sm" id="btnGear" title="Cài đặt kết nối">⚙️ Cài đặt</button>
+  </header>
+
+  <!-- CÀI ĐẶT -->
+  <div class="card hide" id="cardCfg">
+    <h2>⚙️ Cài đặt kết nối</h2>
+    <label class="f">URL Web App Apps Script (kết thúc bằng /exec)</label>
+    <input type="url" id="cfgUrl" placeholder="https://script.google.com/macros/s/.../exec">
+    <label class="f">Mã truy cập APP_TOKEN</label>
+    <input type="password" id="cfgToken" placeholder="Lấy từ nhật ký khi chạy hàm caiDat()">
+    <div class="rec"><button id="btnSaveCfg">💾 Lưu &amp; kiểm tra</button></div>
+    <div class="msg" id="cfgMsg"></div>
+  </div>
+
+  <!-- GHI TRỰC TIẾP -->
+  <div class="card">
+    <h2>🔴 Ghi trực tiếp</h2>
+    <div class="row">
+      <div>
+        <label class="f">Tiêu đề buổi</label>
+        <input type="text" id="recTitle" placeholder="VD: Họp giao ban tuần 43">
+      </div>
+      <div>
+        <label class="f">Loại buổi</label>
+        <select id="recType">
+          <option value="tu_dong">Tự nhận diện</option>
+          <option value="hop">Họp công việc</option>
+          <option value="hoc">Buổi học / đào tạo</option>
+        </select>
+      </div>
+    </div>
+
+    <label class="f">Nguồn âm thanh</label>
+    <div id="nguonBox">
+      <label class="opt" id="optTabMic"><input type="radio" name="nguon" value="tab_mic" checked>
+        <div><b>Âm thanh cuộc họp + giọng của tôi</b>
+          <small>Máy tính. Thu âm thanh tab Meet/Zoom (hoặc cả màn hình) và micro của bạn. Nên đeo tai nghe để không bị vọng tiếng.</small></div></label>
+      <label class="opt" id="optTab"><input type="radio" name="nguon" value="tab">
+        <div><b>Chỉ âm thanh cuộc họp</b>
+          <small>Máy tính. Dùng khi bạn chỉ nghe, không phát biểu.</small></div></label>
+      <label class="opt"><input type="radio" name="nguon" value="mic" id="radMic">
+        <div><b>Chỉ micro</b>
+          <small>Điện thoại hoặc họp trực tiếp tại phòng. Đặt máy gần người nói, giữ màn hình sáng.</small></div></label>
+    </div>
+
+    <div class="rec">
+      <button id="btnStart">⏺️ Bắt đầu ghi</button>
+      <button id="btnStop" class="red hide">⏹️ Kết thúc &amp; tóm tắt</button>
+      <span class="dot hide" id="recDot"></span>
+      <span class="clock hide" id="recClock">00:00</span>
+      <div class="meter hide" id="meterBox"><i id="meter"></i></div>
+    </div>
+    <div class="msg" id="recMsg"></div>
+
+    <div class="note">
+      💡 <b>Họp trên trình duyệt (Meet, Zoom web):</b> khi bấm Bắt đầu, chọn thẻ <i>Chrome Tab</i> có cuộc họp và bật <i>"Chia sẻ cả âm thanh của thẻ"</i>.<br>
+      💡 <b>Zoom/Meet bằng ứng dụng cài trên máy:</b> chọn <i>Toàn bộ màn hình</i> và bật <i>"Chia sẻ âm thanh hệ thống"</i> (chắc chắn hỗ trợ trên Windows).<br>
+      ⚠️ Không đóng trang này khi đang ghi. Hãy thông báo cho người tham dự là buổi đang được ghi âm.
+    </div>
+  </div>
+
+  <!-- TẢI FILE -->
+  <div class="card">
+    <h2>📁 Tải file ghi âm có sẵn</h2>
+    <div class="row">
+      <div>
+        <label class="f">Tiêu đề buổi</label>
+        <input type="text" id="upTitle" placeholder="Để trống sẽ lấy tên file">
+      </div>
+      <div>
+        <label class="f">Loại buổi</label>
+        <select id="upType">
+          <option value="tu_dong">Tự nhận diện</option>
+          <option value="hop">Họp công việc</option>
+          <option value="hoc">Buổi học / đào tạo</option>
+        </select>
+      </div>
+    </div>
+    <label class="f">File âm thanh (.m4a .mp3 .wav .webm .ogg) hoặc video .mp4, tối đa 300MB</label>
+    <input type="file" id="upFile" accept="audio/*,video/mp4,video/webm,.m4a,.mp3,.wav,.webm,.ogg,.aac,.flac,.mp4">
+    <div class="rec"><button id="btnUpload">⬆️ Tải lên &amp; tóm tắt</button></div>
+    <div class="bar hide" id="upBarBox"><i id="upBar"></i></div>
+    <div class="msg" id="upMsg"></div>
+  </div>
+
+  <!-- DANH SÁCH -->
+  <div class="card">
+    <div class="head2">
+      <h2>📋 Các buổi đã ghi</h2>
+      <button class="ghost sm" id="btnRefresh">🔄 Làm mới</button>
+    </div>
+    <div class="msg" id="listMsg"></div>
+    <div id="list"></div>
+  </div>
+
+</div>
+
+<script>
+/* ================= CẤU HÌNH ================= */
+const SEG_MS = 5 * 60 * 1000;          // mỗi đoạn ghi 5 phút
+const MANH = 8 * 1024 * 1024;          // mảnh tải file 8MB (đúng bội số Gemini yêu cầu)
+const MAX_FILE = 300 * 1024 * 1024;
+const $ = id => document.getElementById(id);
+const ngu = ms => new Promise(r => setTimeout(r, ms));
+
+let CFG = { url: '', token: '' };
+try { CFG = Object.assign(CFG, JSON.parse(localStorage.getItem('agentGhi.cfg') || '{}')); } catch (e) {}
+
+function msg(id, text, cls) { const el = $(id); el.textContent = text || ''; el.className = 'msg' + (cls ? ' ' + cls : ''); }
+function fmt(s) { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60, p = n => String(n).padStart(2, '0'); return h ? h + ':' + p(m) + ':' + p(x) : p(m) + ':' + p(x); }
+
+async function goiApi(action, payload) {
+  if (!CFG.url || !CFG.token) throw new Error('Chưa nhập cài đặt kết nối (⚙️).');
+  const res = await fetch(CFG.url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(Object.assign({ action, token: CFG.token }, payload || {}))
+  });
+  let j;
+  try { j = await res.json(); } catch (e) { throw new Error('Máy chủ trả về dữ liệu lạ (HTTP ' + res.status + '). Kiểm tra URL Web App.'); }
+  if (!j.ok) throw new Error(j.error || 'Lỗi không rõ');
+  return j.data;
+}
+
+function blobB64(blob) {
+  return new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(String(fr.result).split(',')[1] || '');
+    fr.onerror = () => rej(fr.error);
+    fr.readAsDataURL(blob);
+  });
+}
+
+/* ================= CÀI ĐẶT ================= */
+function moCaiDat() { $('cardCfg').classList.remove('hide'); $('cfgUrl').value = CFG.url; $('cfgToken').value = CFG.token; }
+$('btnGear').onclick = () => $('cardCfg').classList.contains('hide') ? moCaiDat() : $('cardCfg').classList.add('hide');
+$('btnSaveCfg').onclick = async () => {
+  CFG.url = $('cfgUrl').value.trim();
+  CFG.token = $('cfgToken').value.trim();
+  try { localStorage.setItem('agentGhi.cfg', JSON.stringify(CFG)); } catch (e) {}
+  msg('cfgMsg', 'Đang kiểm tra kết nối…');
+  try {
+    const d = await goiApi('kiemTra');
+    if (d.coKey) { msg('cfgMsg', '✅ Kết nối thành công.', 'ok'); setTimeout(() => $('cardCfg').classList.add('hide'), 1200); taiDanhSach(); }
+    else msg('cfgMsg', '⚠️ Kết nối được nhưng chưa có GEMINI_API_KEY trong Thuộc tính tập lệnh.', 'err');
+  } catch (e) { msg('cfgMsg', '❌ ' + e.message, 'err'); }
+};
+
+/* ================= GHI TRỰC TIẾP ================= */
+const R = { on: false, stopping: false, sessionId: null, streams: [], ctx: null, dest: null, analyser: null,
+  mr: null, mime: '', t0: 0, segStart: 0, segIndex: 0, queued: 0, sent: 0, queue: [], sending: false,
+  tick: null, raf: null, wake: null, note: '' };
+
+const coDisplay = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+if (!coDisplay) { $('optTabMic').classList.add('hide'); $('optTab').classList.add('hide'); $('radMic').checked = true; }
+
+function chonMime() {
+  const ds = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
+  for (const m of ds) if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
+  return '';
+}
+
+function giaiThichLoi(e) {
+  if (e && e.message === 'KHONG_AM_THANH') return '❌ Chưa bật chia sẻ âm thanh. Bấm Bắt đầu lại và tích ô "Chia sẻ âm thanh" ở cửa sổ chọn thẻ/màn hình.';
+  const n = e && e.name;
+  if (n === 'NotAllowedError') return '❌ Bạn đã từ chối quyền hoặc bấm Huỷ ở cửa sổ chia sẻ. Bấm Bắt đầu lại và cho phép.';
+  if (n === 'NotFoundError') return '❌ Không tìm thấy micro trên thiết bị.';
+  if (n === 'NotReadableError') return '❌ Micro đang bị ứng dụng khác chiếm dụng.';
+  return '❌ ' + ((e && e.message) || e);
+}
+
+$('btnStart').onclick = batDauGhi;
+$('btnStop').onclick = () => dungGhi('');
+
+async function batDauGhi() {
+  if (!CFG.url || !CFG.token) { moCaiDat(); return msg('recMsg', 'Hãy nhập cài đặt kết nối trước.', 'err'); }
+  if (!window.MediaRecorder) return msg('recMsg', '❌ Trình duyệt không hỗ trợ ghi âm. Hãy dùng Chrome hoặc Edge bản mới.', 'err');
+  const che = document.querySelector('input[name=nguon]:checked').value;
+  $('btnStart').disabled = true;
+  msg('recMsg', 'Đang xin quyền truy cập âm thanh…');
+
+  const streams = [];
+  try {
+    if (che !== 'mic') {
+      if (!coDisplay) throw new Error('Thiết bị này không thu được âm thanh thẻ/màn hình. Hãy chọn "Chỉ micro".');
+      const ds = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true, systemAudio: 'include' });
+      streams.push(ds);
+      if (!ds.getAudioTracks().length) throw new Error('KHONG_AM_THANH');
+      ds.getVideoTracks().forEach(t => t.addEventListener('ended', () => { if (R.on) dungGhi('Bạn đã dừng chia sẻ nên hệ thống tự kết thúc ghi.'); }));
+    }
+    if (che !== 'tab') {
+      streams.push(await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }));
+    }
+  } catch (e) {
+    streams.forEach(s => s.getTracks().forEach(t => t.stop()));
+    $('btnStart').disabled = false;
+    return msg('recMsg', giaiThichLoi(e), 'err');
+  }
+
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const ctx = new AC();
+  const dest = ctx.createMediaStreamDestination();
+  try { dest.channelCount = 1; } catch (e) {}
+  const an = ctx.createAnalyser(); an.fftSize = 1024;
+  streams.forEach(s => {
+    const tr = s.getAudioTracks();
+    if (tr.length) { const src = ctx.createMediaStreamSource(new MediaStream(tr)); src.connect(dest); src.connect(an); }
+  });
+  try { await ctx.resume(); } catch (e) {}
+
+  try {
+    const d = await goiApi('batDau', { tieuDe: $('recTitle').value, loai: $('recType').value });
+    R.sessionId = d.sessionId;
+  } catch (e) {
+    streams.forEach(s => s.getTracks().forEach(t => t.stop()));
+    try { ctx.close(); } catch (x) {}
+    $('btnStart').disabled = false;
+    return msg('recMsg', '❌ Không tạo được phiên: ' + e.message, 'err');
+  }
+
+  Object.assign(R, { on: true, stopping: false, streams, ctx, dest, analyser: an, mime: chonMime(),
+    t0: Date.now(), segIndex: 0, queued: 0, sent: 0, queue: [], note: '' });
+  batDauDoan();
+  R.tick = setInterval(nhipGhi, 1000);
+  veMeter();
+  giuManHinh();
+
+  $('btnStart').classList.add('hide'); $('btnStart').disabled = false;
+  $('btnStop').classList.remove('hide'); $('btnStop').disabled = false;
+  ['recDot', 'recClock', 'meterBox'].forEach(id => $(id).classList.remove('hide'));
+  $('nguonBox').style.opacity = .5; $('nguonBox').style.pointerEvents = 'none';
+  capNhatTrangThaiGhi();
+  taiDanhSach();
+}
+
+function batDauDoan() {
+  const opts = { audioBitsPerSecond: 32000 };
+  if (R.mime) opts.mimeType = R.mime;
+  const mr = new MediaRecorder(R.dest.stream, opts);
+  const parts = [];
+  const stt = ++R.segIndex;
+  const tu = (Date.now() - R.t0) / 1000;
+  mr.ondataavailable = e => { if (e.data && e.data.size) parts.push(e.data); };
+  mr.onstop = () => {
+    const den = (Date.now() - R.t0) / 1000;
+    const blob = new Blob(parts, { type: (mr.mimeType || R.mime || 'audio/webm') });
+    if (blob.size > 4000) { R.queue.push({ stt, tu, den, blob, lan: 0 }); R.queued++; guiHangDoi(); }
+    capNhatTrangThaiGhi();
+  };
+  mr.start(5000);
+  R.mr = mr;
+  R.segStart = Date.now();
+}
+
+function nhipGhi() {
+  $('recClock').textContent = fmt((Date.now() - R.t0) / 1000);
+  if (Date.now() - R.segStart >= SEG_MS) { const cu = R.mr; batDauDoan(); cu.stop(); }
+}
+
+function veMeter() {
+  const buf = new Uint8Array(R.analyser.fftSize);
+  const loop = () => {
+    if (!R.on || R.stopping) return;
+    R.analyser.getByteTimeDomainData(buf);
+    let s = 0; for (const v of buf) { const x = (v - 128) / 128; s += x * x; }
+    $('meter').style.width = Math.min(100, Math.sqrt(s / buf.length) * 400) + '%';
+    R.raf = requestAnimationFrame(loop);
+  };
+  loop();
+}
+
+function capNhatTrangThaiGhi(them) {
+  if (them !== undefined) R.note = them;
+  if (!R.on) return;
+  msg('recMsg', 'Đang ghi đoạn ' + R.segIndex + ' · Đã gửi ' + R.sent + '/' + R.queued + ' đoạn về máy chủ' + (R.note ? '\n' + R.note : ''));
+}
+
+async function guiHangDoi() {
+  if (R.sending) return;
+  R.sending = true;
+  while (R.queue.length) {
+    const d = R.queue[0];
+    try {
+      const data = await blobB64(d.blob);
+      await goiApi('guiDoan', { sessionId: R.sessionId, stt: d.stt, batDau: Math.round(d.tu), ketThuc: Math.round(d.den), mime: d.blob.type, data });
+      R.queue.shift(); R.sent++;
+      capNhatTrangThaiGhi('');
+    } catch (e) {
+      d.lan++;
+      capNhatTrangThaiGhi('⚠️ Gửi đoạn ' + d.stt + ' lỗi (' + e.message + '), đang tự thử lại…');
+      await ngu(Math.min(60000, 5000 * d.lan));
+    }
+  }
+  R.sending = false;
+}
+
+async function dungGhi(lyDo) {
+  if (!R.on || R.stopping) return;
+  R.stopping = true;
+  clearInterval(R.tick);
+  cancelAnimationFrame(R.raf);
+  $('btnStop').disabled = true;
+
+  await new Promise(res => {
+    const mr = R.mr;
+    if (!mr || mr.state === 'inactive') return res();
+    mr.addEventListener('stop', () => setTimeout(res, 100), { once: true });
+    mr.stop();
+  });
+  R.streams.forEach(s => s.getTracks().forEach(t => t.stop()));
+  try { R.ctx.close(); } catch (e) {}
+  thaManHinh();
+
+  const thoiLuong = Math.round((Date.now() - R.t0) / 1000);
+  msg('recMsg', (lyDo ? lyDo + '\n' : '') + 'Đang gửi nốt dữ liệu, đừng đóng trang…');
+  while (R.queue.length || R.sending) await ngu(1000);
+
+  let xong = false;
+  for (let i = 0; i < 20 && !xong; i++) {
+    try { await goiApi('ketThuc', { sessionId: R.sessionId, tongDoan: R.queued, thoiLuong }); xong = true; }
+    catch (e) { msg('recMsg', '⚠️ Chưa báo kết thúc được (' + e.message + '), thử lại sau 5 giây…', 'err'); await ngu(5000); }
+  }
+
+  R.on = false; R.stopping = false;
+  $('btnStop').classList.add('hide');
+  $('btnStart').classList.remove('hide');
+  ['recDot', 'recClock', 'meterBox'].forEach(id => $(id).classList.add('hide'));
+  $('recClock').textContent = '00:00'; $('meter').style.width = '0';
+  $('nguonBox').style.opacity = 1; $('nguonBox').style.pointerEvents = 'auto';
+  if (xong) msg('recMsg', '✅ Đã ghi xong ' + fmt(thoiLuong) + '. Agent đang chép lời và tóm tắt. Kết quả sẽ hiện ở mục "Các buổi đã ghi" sau khoảng 5–15 phút.', 'ok');
+  else msg('recMsg', '⚠️ Dữ liệu đã gửi đủ nhưng chưa báo kết thúc được. Bấm "Kết thúc & tóm tắt" ở mục danh sách bên dưới.', 'err');
+  taiDanhSach();
+}
+
+async function giuManHinh() { try { if ('wakeLock' in navigator) R.wake = await navigator.wakeLock.request('screen'); } catch (e) {} }
+function thaManHinh() { try { if (R.wake) R.wake.release(); } catch (e) {} R.wake = null; }
+document.addEventListener('visibilitychange', () => {
+  if (R.on && document.visibilityState === 'visible' && (!R.wake || R.wake.released)) giuManHinh();
+});
+window.addEventListener('beforeunload', e => {
+  if (R.on || R.queue.length || UP.dang) { e.preventDefault(); e.returnValue = ''; }
+});
+
+/* ================= TẢI FILE ================= */
+const UP = { dang: false };
+
+function doanMime(ten) {
+  const ext = (ten.split('.').pop() || '').toLowerCase();
+  return { m4a: 'audio/mp4', mp3: 'audio/mp3', wav: 'audio/wav', webm: 'audio/webm', ogg: 'audio/ogg',
+    aac: 'audio/aac', flac: 'audio/flac', mp4: 'video/mp4' }[ext] || '';
+}
+
+function layThoiLuong(f) {
+  return new Promise(res => {
+    let xong = false;
+    const ket = v => { if (!xong) { xong = true; URL.revokeObjectURL(url); res(v); } };
+    const url = URL.createObjectURL(f);
+    const el = document.createElement((f.type || '').startsWith('video') ? 'video' : 'audio');
+    el.preload = 'metadata';
+    el.onloadedmetadata = () => ket(isFinite(el.duration) ? Math.round(el.duration) : 0);
+    el.onerror = () => ket(0);
+    el.src = url;
+    setTimeout(() => ket(0), 15000);
+  });
+}
+
+$('btnUpload').onclick = async () => {
+  const f = $('upFile').files[0];
+  if (!f) return msg('upMsg', 'Hãy chọn file trước.', 'err');
+  if (f.size > MAX_FILE) return msg('upMsg', '❌ File lớn hơn 300MB. Hãy dùng file chỉ có âm thanh (.m4a/.mp3).', 'err');
+  const mime = f.type || doanMime(f.name);
+  if (!/^(audio|video)\//.test(mime)) return msg('upMsg', '❌ Không nhận dạng được loại file.', 'err');
+
+  UP.dang = true;
+  $('btnUpload').disabled = true;
+  $('upBarBox').classList.remove('hide'); $('upBar').style.width = '0';
+  try {
+    msg('upMsg', 'Đang đọc thời lượng file…');
+    const thoiLuong = await layThoiLuong(f);
+    const d = await goiApi('taiFileBatDau', {
+      tieuDe: $('upTitle').value.trim() || f.name.replace(/\.[^.]+$/, ''),
+      loai: $('upType').value, tenFile: f.name, mime, kichThuoc: f.size, thoiLuong
+    });
+    const n = Math.ceil(f.size / MANH);
+    for (let i = 0; i < n; i++) {
+      const data = await blobB64(f.slice(i * MANH, Math.min(f.size, (i + 1) * MANH)));
+      let ok = false;
+      for (let lan = 1; lan <= 4 && !ok; lan++) {
+        try { await goiApi('taiFileManh', { sessionId: d.sessionId, stt: i + 1, data }); ok = true; }
+        catch (e) { if (lan === 4) throw e; msg('upMsg', '⚠️ Mảnh ' + (i + 1) + ' lỗi, thử lại lần ' + (lan + 1) + '…', 'err'); await ngu(4000 * lan); }
+      }
+      $('upBar').style.width = Math.round((i + 1) / n * 100) + '%';
+      msg('upMsg', 'Đang tải lên ' + (i + 1) + '/' + n + ' phần…');
+    }
+    await goiApi('taiFileXong', { sessionId: d.sessionId, soManh: n });
+    msg('upMsg', '✅ Đã tải lên xong. Agent đang xử lý, kết quả sẽ hiện ở mục "Các buổi đã ghi" sau khoảng 5–20 phút.', 'ok');
+    $('upFile').value = ''; $('upTitle').value = '';
+  } catch (e) {
+    msg('upMsg', '❌ ' + e.message, 'err');
+  } finally {
+    UP.dang = false;
+    $('btnUpload').disabled = false;
+    taiDanhSach();
+  }
+};
+
+/* ================= DANH SÁCH ================= */
+const TT = { dang_ghi: '🔴 Đang ghi', dang_tai_len: '⬆️ Đang tải file lên', cho_dua_len_gemini: '⏳ Chờ đưa file cho AI',
+  cho_xu_ly: '✍️ Đang chép lời', dang_tom_tat: '🧠 Đang tóm tắt', xong: '✅ Hoàn tất', loi: '❌ Lỗi' };
+const TEN_LOAI = { tu_dong: '', hop: 'Họp', hoc: 'Học' };
+let pollTimer = null;
+
+$('btnRefresh').onclick = () => taiDanhSach();
+
+async function taiDanhSach() {
+  if (!CFG.url || !CFG.token) return;
+  clearTimeout(pollTimer);
+  msg('listMsg', 'Đang tải…');
+  try {
+    const ds = await goiApi('danhSach');
+    msg('listMsg', '');
+    veDanhSach(ds);
+    if (ds.some(x => x.trangThai !== 'xong' && x.trangThai !== 'loi')) pollTimer = setTimeout(taiDanhSach, 30000);
+  } catch (e) {
+    msg('listMsg', '❌ ' + e.message, 'err');
+  }
+}
+
+function veDanhSach(ds) {
+  const box = $('list');
+  box.innerHTML = '';
+  if (!ds.length) { msg('listMsg', 'Chưa có buổi nào.'); return; }
+  ds.forEach(x => {
+    const el = document.createElement('div');
+    el.className = 'item';
+    el.innerHTML = '<div class="t"></div><div class="m"></div><div class="s"><span class="badge"></span></div><div class="s tt"></div><div class="acts"></div>';
+    el.querySelector('.t').textContent = x.tieuDe;
+    const loai = TEN_LOAI[x.loai] !== undefined ? TEN_LOAI[x.loai] : x.loai;
+    el.querySelector('.m').textContent = [x.taoLuc, x.thoiLuong !== '00:00' ? x.thoiLuong : '',
+      x.nguon === 'file' ? 'File tải lên' : 'Ghi trực tiếp', loai].filter(Boolean).join(' · ');
+    const tienDo = (x.trangThai === 'cho_xu_ly' || x.trangThai === 'dang_ghi') && x.tongDoan ? ' (' + x.xongDoan + '/' + x.tongDoan + ' đoạn)' : '';
+    el.querySelector('.badge').textContent = (TT[x.trangThai] || x.trangThai) + tienDo;
+
+    const tt = el.querySelector('.tt');
+    if (x.tomTatNgan) { const p = document.createElement('div'); p.textContent = '📝 ' + x.tomTatNgan; tt.appendChild(p); }
+    if (x.loi) { const p = document.createElement('div'); p.className = 'msg err'; p.textContent = '⚠️ ' + x.loi; tt.appendChild(p); }
+
+    const acts = el.querySelector('.acts');
+    if (x.docUrl) {
+      const b = document.createElement('button');
+      b.className = 'sm'; b.textContent = '📄 Mở bản tóm tắt';
+      b.onclick = () => window.open(x.docUrl, '_blank', 'noopener');
+      acts.appendChild(b);
+    }
+    const dangGhiPhienNay = R.on && R.sessionId === x.id;
+    if (!dangGhiPhienNay && ['loi', 'xong', 'dang_ghi'].includes(x.trangThai)) {
+      const b = document.createElement('button');
+      b.className = 'sm ghost';
+      b.textContent = x.trangThai === 'xong' ? '🔁 Tóm tắt lại' : x.trangThai === 'dang_ghi' ? '⏹️ Kết thúc & tóm tắt' : '🔁 Thử lại';
+      b.onclick = () => thuLai(x, b);
+      acts.appendChild(b);
+    }
+    box.appendChild(el);
+  });
+}
+
+async function thuLai(x, btn) {
+  if (x.trangThai === 'xong' && !confirm('Tạo bản tóm tắt mới cho buổi này? Bản cũ vẫn được giữ trong Drive.')) return;
+  btn.disabled = true;
+  try { await goiApi('thuLai', { sessionId: x.id }); msg('listMsg', '✅ Đã đưa vào hàng chờ xử lý (khoảng 5–15 phút).', 'ok'); }
+  catch (e) { msg('listMsg', '❌ ' + e.message, 'err'); }
+  taiDanhSach();
+}
+
+/* ================= KHỞI ĐỘNG ================= */
+if (!CFG.url || !CFG.token) moCaiDat(); else taiDanhSach();
+</script>
+</body>
+</html>
